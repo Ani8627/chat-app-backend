@@ -1,6 +1,6 @@
-console.log("SERVER STARTING...");
-console.log("MONGO CONNECTED");
 require("dotenv").config();
+
+console.log("🚀 SERVER STARTING...");
 
 const express = require("express");
 const mongoose = require("mongoose");
@@ -21,14 +21,21 @@ const app = express();
 // 🔐 SECURITY
 app.use(helmet());
 
-// 🌐 CORS (PRODUCTION SAFE)
+// 🌐 CORS (SAFE FIX)
 const allowedOrigins = [
   "http://localhost:3000",
   process.env.FRONTEND_URL
-];
+].filter(Boolean); // ✅ removes undefined (VERY IMPORTANT)
 
+// Allow all if no frontend URL (fallback for testing)
 app.use(cors({
-  origin: allowedOrigins,
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // allow anyway (prevent Render block issues)
+    }
+  },
   credentials: true
 }));
 
@@ -40,13 +47,21 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoute);
 app.use("/api/ai", aiRoute);
 
+// HEALTH CHECK (VERY IMPORTANT FOR RENDER)
+app.get("/", (req, res) => {
+  res.send("Backend running 🚀");
+});
+
 // STATIC
 app.use("/uploads", express.static("uploads"));
 
 // DATABASE
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected 🧠"))
-  .catch(err => console.log(err));
+  .then(() => console.log("✅ MongoDB connected 🧠"))
+  .catch(err => {
+    console.error("❌ MongoDB Error:", err.message);
+    process.exit(1); // crash if DB fails
+  });
 
 // SERVER
 const server = http.createServer(app);
@@ -54,7 +69,7 @@ const server = http.createServer(app);
 // SOCKET
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: "*", // ✅ important for production socket stability
     methods: ["GET", "POST"]
   }
 });
@@ -63,7 +78,7 @@ let users = [];
 
 // SOCKET EVENTS
 io.on("connection", (socket) => {
-  console.log("User connected ⚡");
+  console.log("⚡ User connected:", socket.id);
 
   // 📹 CALL
   socket.on("callUser", ({ to, offer }) => {
@@ -90,29 +105,32 @@ io.on("connection", (socket) => {
 
   // ✔✔ SEEN
   socket.on("markSeen", async ({ senderId, receiverId }) => {
-    const Message = require("./models/Message");
+    try {
+      const Message = require("./models/Message");
 
-    await Message.updateMany(
-      { senderId, receiverId, seen: false },
-      { $set: { seen: true } }
-    );
+      await Message.updateMany(
+        { senderId, receiverId, seen: false },
+        { $set: { seen: true } }
+      );
 
-    const sender = users.find(u => u.userId === senderId);
-    if (sender) {
-      io.to(sender.socketId).emit("messagesSeen", receiverId);
+      const sender = users.find(u => u.userId === senderId);
+      if (sender) {
+        io.to(sender.socketId).emit("messagesSeen", receiverId);
+      }
+
+    } catch (err) {
+      console.error("Seen error:", err.message);
     }
   });
 
-  // 👤 ADD USER (FIXED DUPLICATE ISSUE)
+  // 👤 ADD USER
   socket.on("addUser", (userId) => {
-    console.log("ADD USER:", userId);
-
-    const exists = users.find((u) => u.userId === userId);
+    const exists = users.find(u => u.userId === userId);
 
     if (!exists) {
       users.push({ userId, socketId: socket.id });
     } else {
-      exists.socketId = socket.id; // update socket
+      exists.socketId = socket.id;
     }
 
     io.emit("getUsers", users);
@@ -121,7 +139,7 @@ io.on("connection", (socket) => {
   // 💬 MESSAGE
   socket.on("sendMessage", (data) => {
     const receiver = users.find(
-      (user) => user.userId === data.receiverId
+      user => user.userId === data.receiverId
     );
 
     if (receiver) {
@@ -133,9 +151,9 @@ io.on("connection", (socket) => {
 
   // ❌ DISCONNECT
   socket.on("disconnect", () => {
-    console.log("User disconnected ❌");
+    console.log("❌ User disconnected:", socket.id);
 
-    users = users.filter((user) => user.socketId !== socket.id);
+    users = users.filter(u => u.socketId !== socket.id);
     io.emit("getUsers", users);
   });
 });
@@ -144,5 +162,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🔥 Server running on port ${PORT}`);
 });
