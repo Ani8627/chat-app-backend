@@ -10,7 +10,7 @@ router.post("/chat", async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openchat/openchat-3.5", // ✅ FIXED MODEL
+        model: "meta-llama/llama-3-8b-instruct:free", // ✅ FINAL WORKING MODEL
         messages: [{ role: "user", content: message }],
       },
       {
