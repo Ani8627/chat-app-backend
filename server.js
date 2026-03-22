@@ -1,3 +1,5 @@
+console.log("SERVER STARTING...");
+console.log("MONGO CONNECTED");
 require("dotenv").config();
 
 const express = require("express");
