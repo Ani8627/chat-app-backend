@@ -15,20 +15,17 @@ const messageRoutes = require("./routes/messageRoutes");
 const uploadRoute = require("./routes/upload");
 const aiRoute = require("./routes/ai");
 
-// CREATE APP
+// APP
 const app = express();
 
 // 🔐 SECURITY
 app.use(helmet());
 
-// ✅ FINAL CORS (WORKS EVERYWHERE)
+// ✅ ONLY THIS CORS (NO app.options)
 app.use(cors({
   origin: true,
   credentials: true
 }));
-
-// ✅ PREFLIGHT FIX (NO CRASH)
-app.options("/*", cors());
 
 app.use(express.json());
 
@@ -38,15 +35,15 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoute);
 app.use("/api/ai", aiRoute);
 
-// HEALTH CHECK
+// HEALTH
 app.get("/", (req, res) => {
   res.send("Backend running 🚀");
 });
 
-// STATIC FILES
+// STATIC
 app.use("/uploads", express.static("uploads"));
 
-// DATABASE
+// DB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected 🧠"))
   .catch(err => {
@@ -54,10 +51,10 @@ mongoose.connect(process.env.MONGO_URI)
     process.exit(1);
   });
 
-// CREATE SERVER
+// SERVER
 const server = http.createServer(app);
 
-// ✅ SOCKET.IO (PRODUCTION READY)
+// SOCKET
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -65,14 +62,13 @@ const io = new Server(server, {
   }
 });
 
-// USERS STORE
 let users = [];
 
 // SOCKET EVENTS
 io.on("connection", (socket) => {
   console.log("⚡ User connected:", socket.id);
 
-  // 📹 VIDEO CALL
+  // CALL
   socket.on("callUser", ({ to, offer }) => {
     const user = users.find(u => u.userId === to);
     if (user) {
@@ -87,7 +83,7 @@ io.on("connection", (socket) => {
     io.to(to).emit("callAnswered", { answer });
   });
 
-  // ⌨️ TYPING
+  // TYPING
   socket.on("typing", ({ senderId, receiverId }) => {
     const receiver = users.find(u => u.userId === receiverId);
     if (receiver) {
@@ -95,7 +91,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ✔✔ SEEN
+  // SEEN
   socket.on("markSeen", async ({ senderId, receiverId }) => {
     try {
       const Message = require("./models/Message");
@@ -115,7 +111,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 👤 ADD USER (NO DUPLICATES)
+  // ADD USER
   socket.on("addUser", ({ userId, username }) => {
     const existing = users.find(u => u.userId === userId);
 
@@ -129,7 +125,6 @@ io.on("connection", (socket) => {
       });
     }
 
-    // remove duplicates safety
     users = users.filter(
       (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
     );
@@ -137,7 +132,7 @@ io.on("connection", (socket) => {
     io.emit("getUsers", users);
   });
 
-  // 💬 MESSAGE (NO DUPLICATE BUG)
+  // MESSAGE
   socket.on("sendMessage", (data) => {
     const receiver = users.find(u => u.userId === data.receiverId);
 
@@ -146,7 +141,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ❌ DISCONNECT
+  // DISCONNECT
   socket.on("disconnect", () => {
     console.log("❌ User disconnected:", socket.id);
 
@@ -165,7 +160,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// START SERVER
+// START
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
