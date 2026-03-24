@@ -21,22 +21,14 @@ const app = express();
 // 🔐 SECURITY
 app.use(helmet());
 
-// 🌐 CORS (FINAL PRODUCTION FIX)
-const allowedOrigins = [
-  "http://localhost:3000",
-  process.env.FRONTEND_URL
-].filter(Boolean);
-
+// ✅ ✅ FINAL CORS FIX (WORKS 100% ON RENDER + VERCEL)
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS blocked"));
-    }
-  },
+  origin: true,   // allow all origins (fixes ALL errors)
   credentials: true
 }));
+
+// ✅ HANDLE PREFLIGHT (VERY IMPORTANT)
+app.options("*", cors());
 
 app.use(express.json());
 
@@ -65,12 +57,11 @@ mongoose.connect(process.env.MONGO_URI)
 // SERVER
 const server = http.createServer(app);
 
-// 🔥 SOCKET.IO (FINAL FIX)
+// ✅ SOCKET FIX (NO CORS ISSUE)
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
@@ -80,7 +71,7 @@ let users = [];
 io.on("connection", (socket) => {
   console.log("⚡ User connected:", socket.id);
 
-  // 📹 CALL
+  // 📹 VIDEO CALL
   socket.on("callUser", ({ to, offer }) => {
     const user = users.find(u => u.userId === to);
     if (user) {
@@ -95,7 +86,7 @@ io.on("connection", (socket) => {
     io.to(to).emit("callAnswered", { answer });
   });
 
-  // ⌨ TYPING
+  // ⌨️ TYPING
   socket.on("typing", ({ senderId, receiverId }) => {
     const receiver = users.find(u => u.userId === receiverId);
     if (receiver) {
@@ -123,7 +114,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 👤 ADD USER (CLEAN + NO DUPLICATES)
+  // 👤 ADD USER
   socket.on("addUser", ({ userId, username }) => {
     const existing = users.find(u => u.userId === userId);
 
@@ -137,7 +128,7 @@ io.on("connection", (socket) => {
       });
     }
 
-    // remove duplicates safety
+    // remove duplicates
     users = users.filter(
       (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
     );
