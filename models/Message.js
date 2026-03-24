@@ -2,12 +2,28 @@ const mongoose = require("mongoose");
 
 const MessageSchema = new mongoose.Schema(
   {
-    senderId: String,
-    receiverId: String,
-    text: String,
-    seen: { type: Boolean, default: false }
+    senderId: {
+      type: String,
+      required: true,
+    },
+    receiverId: {
+      type: String,
+      required: true,
+    },
+    text: {
+      type: String,
+      default: "",
+    },
+    type: {
+      type: String,
+      default: "text",
+    },
+    seen: {
+      type: Boolean,
+      default: false,
+    },
   },
-  { timestamps: true } // 👈 MUST BE HERE
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("Message", MessageSchema);

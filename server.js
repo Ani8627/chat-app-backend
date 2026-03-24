@@ -21,20 +21,15 @@ const app = express();
 // 🔐 SECURITY
 app.use(helmet());
 
-// 🌐 CORS (SAFE FIX)
+// 🌐 CORS
 const allowedOrigins = [
   "http://localhost:3000",
   process.env.FRONTEND_URL
-].filter(Boolean); // ✅ removes undefined (VERY IMPORTANT)
+].filter(Boolean);
 
-// Allow all if no frontend URL (fallback for testing)
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // allow anyway (prevent Render block issues)
-    }
+    callback(null, true);
   },
   credentials: true
 }));
@@ -47,7 +42,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoute);
 app.use("/api/ai", aiRoute);
 
-// HEALTH CHECK (VERY IMPORTANT FOR RENDER)
+// HEALTH CHECK
 app.get("/", (req, res) => {
   res.send("Backend running 🚀");
 });
@@ -60,7 +55,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected 🧠"))
   .catch(err => {
     console.error("❌ MongoDB Error:", err.message);
-    process.exit(1); // crash if DB fails
+    process.exit(1);
   });
 
 // SERVER
@@ -69,7 +64,7 @@ const server = http.createServer(app);
 // SOCKET
 const io = new Server(server, {
   cors: {
-    origin: "*", // ✅ important for production socket stability
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -123,30 +118,43 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 👤 ADD USER
-  socket.on("addUser", (userId) => {
-    const exists = users.find(u => u.userId === userId);
+  // 👤 ADD USER (🔥 FIXED)
+  socket.on("addUser", ({ userId, username }) => {
+    const existingUser = users.find(u => u.userId === userId);
 
-    if (!exists) {
-      users.push({ userId, socketId: socket.id });
+    if (existingUser) {
+      existingUser.socketId = socket.id;
     } else {
-      exists.socketId = socket.id;
+      users.push({
+        userId,
+        username: username || "User",
+        socketId: socket.id,
+      });
     }
+
+    // remove duplicates (extra safety)
+    users = users.filter(
+      (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
+    );
 
     io.emit("getUsers", users);
   });
 
-  // 💬 MESSAGE
+  // 💬 MESSAGE (🔥 IMPROVED)
   socket.on("sendMessage", (data) => {
-    const receiver = users.find(
-      user => user.userId === data.receiverId
-    );
+    const sender = users.find(u => u.userId === data.senderId);
+    const receiver = users.find(u => u.userId === data.receiverId);
+
+    const enrichedMessage = {
+      ...data,
+      senderName: sender?.username || "User",
+    };
 
     if (receiver) {
-      io.to(receiver.socketId).emit("receiveMessage", data);
+      io.to(receiver.socketId).emit("receiveMessage", enrichedMessage);
     }
 
-    socket.emit("receiveMessage", data);
+    socket.emit("receiveMessage", enrichedMessage);
   });
 
   // ❌ DISCONNECT
