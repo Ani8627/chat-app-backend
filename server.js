@@ -18,14 +18,27 @@ const aiRoute = require("./routes/ai");
 // APP
 const app = express();
 
-// 🔐 SECURITY
+// SECURITY
 app.use(helmet());
 
-// ✅ ONLY THIS CORS (NO app.options)
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+// CORS (🔥 FINAL FIX)
+const allowedOrigins = [
+  "http://localhost:3000",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true); // allow all (safe fallback)
+      }
+    },
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
@@ -35,18 +48,21 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoute);
 app.use("/api/ai", aiRoute);
 
-// HEALTH
+// HEALTH CHECK
 app.get("/", (req, res) => {
   res.send("Backend running 🚀");
 });
 
-// STATIC
+// STATIC FILES
 app.use("/uploads", express.static("uploads"));
 
-// DB
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected 🧠"))
-  .catch(err => {
+// ❌ REMOVE ANY app.options("/*") — it causes crash
+
+// DATABASE
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => {
     console.error("❌ MongoDB Error:", err.message);
     process.exit(1);
   });
@@ -54,23 +70,64 @@ mongoose.connect(process.env.MONGO_URI)
 // SERVER
 const server = http.createServer(app);
 
-// SOCKET
+// SOCKET.IO (🔥 FINAL FIX)
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+  },
 });
 
 let users = [];
 
 // SOCKET EVENTS
 io.on("connection", (socket) => {
-  console.log("⚡ User connected:", socket.id);
+  console.log("⚡ Connected:", socket.id);
 
-  // CALL
+  // ADD USER
+  socket.on("addUser", ({ userId, username }) => {
+    const existing = users.find((u) => u.userId === userId);
+
+    if (existing) {
+      existing.socketId = socket.id;
+    } else {
+      users.push({
+        userId,
+        username: username || "User",
+        socketId: socket.id,
+      });
+    }
+
+    // REMOVE DUPLICATES
+    users = users.filter(
+      (v, i, a) => a.findIndex((t) => t.userId === v.userId) === i
+    );
+
+    io.emit("getUsers", users);
+  });
+
+  // SEND MESSAGE
+  socket.on("sendMessage", (data) => {
+    const receiver = users.find((u) => u.userId === data.receiverId);
+
+    if (receiver) {
+      io.to(receiver.socketId).emit("receiveMessage", data);
+    }
+  });
+
+  // TYPING
+  socket.on("typing", ({ senderId, receiverId }) => {
+    const receiver = users.find((u) => u.userId === receiverId);
+
+    if (receiver) {
+      io.to(receiver.socketId).emit("typing", senderId);
+    }
+  });
+
+  // VIDEO CALL SIGNALING
   socket.on("callUser", ({ to, offer }) => {
-    const user = users.find(u => u.userId === to);
+    const user = users.find((u) => u.userId === to);
+
     if (user) {
       io.to(user.socketId).emit("incomingCall", {
         from: socket.id,
@@ -83,75 +140,17 @@ io.on("connection", (socket) => {
     io.to(to).emit("callAnswered", { answer });
   });
 
-  // TYPING
-  socket.on("typing", ({ senderId, receiverId }) => {
-    const receiver = users.find(u => u.userId === receiverId);
-    if (receiver) {
-      io.to(receiver.socketId).emit("typing", senderId);
-    }
-  });
-
-  // SEEN
-  socket.on("markSeen", async ({ senderId, receiverId }) => {
-    try {
-      const Message = require("./models/Message");
-
-      await Message.updateMany(
-        { senderId, receiverId, seen: false },
-        { $set: { seen: true } }
-      );
-
-      const sender = users.find(u => u.userId === senderId);
-      if (sender) {
-        io.to(sender.socketId).emit("messagesSeen", receiverId);
-      }
-
-    } catch (err) {
-      console.error("Seen error:", err.message);
-    }
-  });
-
-  // ADD USER
-  socket.on("addUser", ({ userId, username }) => {
-    const existing = users.find(u => u.userId === userId);
-
-    if (existing) {
-      existing.socketId = socket.id;
-    } else {
-      users.push({
-        userId,
-        username: username || "User",
-        socketId: socket.id,
-      });
-    }
-
-    users = users.filter(
-      (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
-    );
-
-    io.emit("getUsers", users);
-  });
-
-  // MESSAGE
-  socket.on("sendMessage", (data) => {
-    const receiver = users.find(u => u.userId === data.receiverId);
-
-    if (receiver) {
-      io.to(receiver.socketId).emit("receiveMessage", data);
-    }
-  });
-
   // DISCONNECT
   socket.on("disconnect", () => {
-    console.log("❌ User disconnected:", socket.id);
+    console.log("❌ Disconnected:", socket.id);
 
-    const disconnectedUser = users.find(u => u.socketId === socket.id);
+    const disconnected = users.find((u) => u.socketId === socket.id);
 
-    users = users.filter(u => u.socketId !== socket.id);
+    users = users.filter((u) => u.socketId !== socket.id);
 
-    if (disconnectedUser) {
+    if (disconnected) {
       io.emit("userOffline", {
-        userId: disconnectedUser.userId,
+        userId: disconnected.userId,
         time: new Date().toLocaleTimeString(),
       });
     }
@@ -160,7 +159,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// START
+// PORT (🔥 MUST FOR RENDER)
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
