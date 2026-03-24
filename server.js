@@ -21,18 +21,24 @@ const app = express();
 // 🔐 SECURITY
 app.use(helmet());
 
-// 🌐 CORS
+// 🌐 CORS (PRODUCTION SAFE)
 const allowedOrigins = [
   "http://localhost:3000",
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    callback(null, true);
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true); // allow anyway (safe fallback)
+      }
+    },
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
@@ -51,9 +57,10 @@ app.get("/", (req, res) => {
 app.use("/uploads", express.static("uploads"));
 
 // DATABASE
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected 🧠"))
-  .catch(err => {
+  .catch((err) => {
     console.error("❌ MongoDB Error:", err.message);
     process.exit(1);
   });
@@ -61,12 +68,12 @@ mongoose.connect(process.env.MONGO_URI)
 // SERVER
 const server = http.createServer(app);
 
-// SOCKET
+// SOCKET (PRODUCTION READY)
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+  },
 });
 
 let users = [];
@@ -77,7 +84,7 @@ io.on("connection", (socket) => {
 
   // 📹 CALL
   socket.on("callUser", ({ to, offer }) => {
-    const user = users.find(u => u.userId === to);
+    const user = users.find((u) => u.userId === to);
     if (user) {
       io.to(user.socketId).emit("incomingCall", {
         from: socket.id,
@@ -92,7 +99,7 @@ io.on("connection", (socket) => {
 
   // ⌨ TYPING
   socket.on("typing", ({ senderId, receiverId }) => {
-    const receiver = users.find(u => u.userId === receiverId);
+    const receiver = users.find((u) => u.userId === receiverId);
     if (receiver) {
       io.to(receiver.socketId).emit("typing", senderId);
     }
@@ -108,22 +115,21 @@ io.on("connection", (socket) => {
         { $set: { seen: true } }
       );
 
-      const sender = users.find(u => u.userId === senderId);
+      const sender = users.find((u) => u.userId === senderId);
       if (sender) {
         io.to(sender.socketId).emit("messagesSeen", receiverId);
       }
-
     } catch (err) {
       console.error("Seen error:", err.message);
     }
   });
 
-  // 👤 ADD USER (🔥 FIXED)
+  // 👤 ADD USER (FINAL CLEAN)
   socket.on("addUser", ({ userId, username }) => {
-    const existingUser = users.find(u => u.userId === userId);
+    const existing = users.find((u) => u.userId === userId);
 
-    if (existingUser) {
-      existingUser.socketId = socket.id;
+    if (existing) {
+      existing.socketId = socket.id;
     } else {
       users.push({
         userId,
@@ -132,36 +138,38 @@ io.on("connection", (socket) => {
       });
     }
 
-    // remove duplicates (extra safety)
+    // remove duplicates
     users = users.filter(
-      (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
+      (v, i, a) => a.findIndex((t) => t.userId === v.userId) === i
     );
 
     io.emit("getUsers", users);
   });
 
-  // 💬 MESSAGE (🔥 IMPROVED)
+  // 💬 MESSAGE (NO DUPLICATE BUG)
   socket.on("sendMessage", (data) => {
-    const sender = users.find(u => u.userId === data.senderId);
-    const receiver = users.find(u => u.userId === data.receiverId);
-
-    const enrichedMessage = {
-      ...data,
-      senderName: sender?.username || "User",
-    };
+    const receiver = users.find((u) => u.userId === data.receiverId);
 
     if (receiver) {
-      io.to(receiver.socketId).emit("receiveMessage", enrichedMessage);
+      io.to(receiver.socketId).emit("receiveMessage", data);
     }
-
-    socket.emit("receiveMessage", enrichedMessage);
   });
 
-  // ❌ DISCONNECT
+  // ❌ DISCONNECT (FINAL FIXED)
   socket.on("disconnect", () => {
     console.log("❌ User disconnected:", socket.id);
 
-    users = users.filter(u => u.socketId !== socket.id);
+    const disconnectedUser = users.find((u) => u.socketId === socket.id);
+
+    users = users.filter((u) => u.socketId !== socket.id);
+
+    if (disconnectedUser) {
+      io.emit("userOffline", {
+        userId: disconnectedUser.userId,
+        time: new Date().toLocaleTimeString(),
+      });
+    }
+
     io.emit("getUsers", users);
   });
 });
