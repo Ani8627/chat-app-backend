@@ -21,14 +21,14 @@ const app = express();
 // 🔐 SECURITY
 app.use(helmet());
 
-// ✅ ✅ FINAL CORS FIX (WORKS 100% ON RENDER + VERCEL)
+// ✅ FINAL CORS (WORKS EVERYWHERE)
 app.use(cors({
-  origin: true,   // allow all origins (fixes ALL errors)
+  origin: true,
   credentials: true
 }));
 
-// ✅ HANDLE PREFLIGHT (VERY IMPORTANT)
-app.options("*", cors());
+// ✅ PREFLIGHT FIX (NO CRASH)
+app.options("/*", cors());
 
 app.use(express.json());
 
@@ -43,7 +43,7 @@ app.get("/", (req, res) => {
   res.send("Backend running 🚀");
 });
 
-// STATIC
+// STATIC FILES
 app.use("/uploads", express.static("uploads"));
 
 // DATABASE
@@ -54,10 +54,10 @@ mongoose.connect(process.env.MONGO_URI)
     process.exit(1);
   });
 
-// SERVER
+// CREATE SERVER
 const server = http.createServer(app);
 
-// ✅ SOCKET FIX (NO CORS ISSUE)
+// ✅ SOCKET.IO (PRODUCTION READY)
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -65,6 +65,7 @@ const io = new Server(server, {
   }
 });
 
+// USERS STORE
 let users = [];
 
 // SOCKET EVENTS
@@ -114,7 +115,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 👤 ADD USER
+  // 👤 ADD USER (NO DUPLICATES)
   socket.on("addUser", ({ userId, username }) => {
     const existing = users.find(u => u.userId === userId);
 
@@ -128,7 +129,7 @@ io.on("connection", (socket) => {
       });
     }
 
-    // remove duplicates
+    // remove duplicates safety
     users = users.filter(
       (v, i, a) => a.findIndex(t => t.userId === v.userId) === i
     );
@@ -136,7 +137,7 @@ io.on("connection", (socket) => {
     io.emit("getUsers", users);
   });
 
-  // 💬 MESSAGE (NO DUPLICATE)
+  // 💬 MESSAGE (NO DUPLICATE BUG)
   socket.on("sendMessage", (data) => {
     const receiver = users.find(u => u.userId === data.receiverId);
 
