@@ -94,18 +94,19 @@ io.on("connection", (socket) => {
   // ================= MESSAGE =================
 socket.on("sendMessage", (data) => {
 
-  // ✅ ADDED (DEBUG — EXACT PLACE)
-  console.log("📨 MESSAGE DATA:", data);
-  console.log("👥 USERS MAP:", Array.from(users.values()));
-
   const receiver = users.get(data.receiverId);
   const sender = users.get(data.senderId);
 
-  if (receiver) {
+  console.log("📨 SEND:", data);
+  console.log("🎯 RECEIVER:", receiver);
+
+  // ✅ SEND TO RECEIVER
+  if (receiver && receiver.socketId) {
     io.to(receiver.socketId).emit("receiveMessage", data);
   }
 
-  if (sender) {
+  // ✅ SEND BACK TO SENDER (SYNC)
+  if (sender && sender.socketId) {
     io.to(sender.socketId).emit("receiveMessage", data);
   }
 });
