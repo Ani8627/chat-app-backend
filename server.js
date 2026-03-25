@@ -71,43 +71,42 @@ let groups = new Map();
 io.on("connection", (socket) => {
   console.log("⚡ Connected:", socket.id);
 
-  socket.on("addUser", ({ userId, username }) => {
-  if (!users.has(userId)) {
-    users.set(userId, new Set());
+ socket.on("addUser", ({ userId, username }) => {
+
+  // ✅ FIX: remove old socket if exists
+  for (let [key, value] of users.entries()) {
+    if (value.userId === userId) {
+      users.delete(key);
+    }
   }
 
-  users.get(userId).add(socket.id);
+  // ✅ ADD NEW
+  users.set(userId, {
+    userId,
+    username,
+    socketId: socket.id,
+  });
 
-  // ✅ STORE USERNAME ALSO
-  socket.userId = userId;
-  socket.username = username;
-
-  // ✅ BUILD FULL USER LIST
-  const userList = Array.from(users.keys()).map((id) => ({
-    userId: id,
-    username:
-      Array.from(io.sockets.sockets.values()).find(s => s.userId === id)?.username || "User",
-  }));
-
-  io.emit("getUsers", userList);
+  // ✅ SEND CONSISTENT USER LIST
+  io.emit("getUsers", Array.from(users.values()));
 });
   // ================= MESSAGE =================
- socket.on("sendMessage", (data) => {
+socket.on("sendMessage", (data) => {
 
-  // ✅ FIX (ADD THESE 2 LINES)
+  // ✅ ADDED (DEBUG — EXACT PLACE)
+  console.log("📨 MESSAGE DATA:", data);
+  console.log("👥 USERS MAP:", Array.from(users.values()));
+
   const receiver = users.get(data.receiverId);
   const sender = users.get(data.senderId);
 
-  // ✅ SEND TO RECEIVER
   if (receiver) {
     io.to(receiver.socketId).emit("receiveMessage", data);
   }
 
-  // ✅ SEND BACK TO SENDER (VERY IMPORTANT FOR SYNC)
   if (sender) {
     io.to(sender.socketId).emit("receiveMessage", data);
   }
-
 });
 
   // ================= BLUE TICKS =================
