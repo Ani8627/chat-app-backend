@@ -72,24 +72,26 @@ io.on("connection", (socket) => {
   console.log("⚡ Connected:", socket.id);
 
  socket.on("addUser", ({ userId, username }) => {
-  console.log("✅ ADD USER:", userId, username, socket.id);
 
-  // ✅ FIX: remove old socket if exists
-  for (let [key, value] of users.entries()) {
-    if (value.userId === userId) {
-      users.delete(key);
-    }
+  if (!users.has(userId)) {
+    users.set(userId, {
+      userId,
+      username,
+      sockets: new Set(),
+    });
   }
 
-  // ✅ ADD NEW
-  users.set(userId, {
-    userId,
-    username,
-    socketId: socket.id,
-  });
+  users.get(userId).sockets.add(socket.id);
 
-  // ✅ SEND CONSISTENT USER LIST
-  io.emit("getUsers", Array.from(users.values()));
+  console.log("👥 USERS:", Array.from(users.values()));
+
+  io.emit(
+    "getUsers",
+    Array.from(users.values()).map((u) => ({
+      userId: u.userId,
+      username: u.username,
+    }))
+  );
 });
   // ================= MESSAGE =================
 socket.on("sendMessage", (data) => {
@@ -97,17 +99,18 @@ socket.on("sendMessage", (data) => {
   const receiver = users.get(data.receiverId);
   const sender = users.get(data.senderId);
 
-  console.log("📨 SEND:", data);
-  console.log("🎯 RECEIVER:", receiver);
-
-  // ✅ SEND TO RECEIVER
-  if (receiver && receiver.socketId) {
-    io.to(receiver.socketId).emit("receiveMessage", data);
+  // ✅ SEND TO ALL RECEIVER SOCKETS
+  if (receiver) {
+    receiver.sockets.forEach((socketId) => {
+      io.to(socketId).emit("receiveMessage", data);
+    });
   }
 
-  // ✅ SEND BACK TO SENDER (SYNC)
-  if (sender && sender.socketId) {
-    io.to(sender.socketId).emit("receiveMessage", data);
+  // ✅ SEND BACK TO ALL SENDER SOCKETS
+  if (sender) {
+    sender.sockets.forEach((socketId) => {
+      io.to(socketId).emit("receiveMessage", data);
+    });
   }
 });
 
@@ -174,23 +177,23 @@ socket.on("sendMessage", (data) => {
 
   // ================= DISCONNECT =================
  socket.on("disconnect", () => {
-  const userId = socket.userId;
 
-  if (userId && users.has(userId)) {
-    users.get(userId).delete(socket.id);
+  for (let [userId, user] of users.entries()) {
+    user.sockets.delete(socket.id);
 
-    if (users.get(userId).size === 0) {
+    // ✅ remove user only if no sockets left
+    if (user.sockets.size === 0) {
       users.delete(userId);
     }
   }
 
-  const userList = Array.from(users.keys()).map((id) => ({
-    userId: id,
-    username:
-      Array.from(io.sockets.sockets.values()).find(s => s.userId === id)?.username || "User",
-  }));
-
-  io.emit("getUsers", userList);
+  io.emit(
+    "getUsers",
+    Array.from(users.values()).map((u) => ({
+      userId: u.userId,
+      username: u.username,
+    }))
+  );
 });
 });
 
