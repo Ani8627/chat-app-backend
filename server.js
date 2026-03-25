@@ -92,32 +92,23 @@ io.on("connection", (socket) => {
   io.emit("getUsers", userList);
 });
   // ================= MESSAGE =================
-  socket.on("sendMessage", (data) => {
-const receiverSockets = users.get(data.receiverId);
-const senderSockets = users.get(data.senderId);
+ socket.on("sendMessage", (data) => {
 
-// ✅ SEND TO ALL RECEIVER DEVICES
-if (receiverSockets) {
-  receiverSockets.forEach((sid) => {
-    io.to(sid).emit("receiveMessage", data);
-  });
-}
+  // ✅ FIX (ADD THESE 2 LINES)
+  const receiver = users.get(data.receiverId);
+  const sender = users.get(data.senderId);
 
-// ✅ SEND BACK TO ALL SENDER DEVICES
-if (senderSockets) {
-  senderSockets.forEach((sid) => {
-    io.to(sid).emit("receiveMessage", data);
-  });
-}    const sender = users.get(data.senderId);
+  // ✅ SEND TO RECEIVER
+  if (receiver) {
+    io.to(receiver.socketId).emit("receiveMessage", data);
+  }
 
-    if (receiver) {
-      io.to(receiver.socketId).emit("receiveMessage", data);
-    }
+  // ✅ SEND BACK TO SENDER (VERY IMPORTANT FOR SYNC)
+  if (sender) {
+    io.to(sender.socketId).emit("receiveMessage", data);
+  }
 
-    if (sender) {
-      io.to(sender.socketId).emit("receiveMessage", data);
-    }
-  });
+});
 
   // ================= BLUE TICKS =================
   socket.on("markSeen", ({ senderId, receiverId }) => { // ✅ FIX
