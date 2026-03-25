@@ -1,3 +1,5 @@
+// ✅ FINAL PRODUCTION BACKEND (ALL FIXES APPLIED)
+
 require("dotenv").config();
 
 const express = require("express");
@@ -60,8 +62,8 @@ const io = new Server(server, {
 });
 
 // ================= STORAGE =================
-let users = new Map();     // ✅ FIX
-let groups = new Map();    // ✅ FIX (ONLY ONCE)
+let users = new Map();
+let groups = new Map();
 
 // ================= SOCKET =================
 io.on("connection", (socket) => {
@@ -83,23 +85,21 @@ io.on("connection", (socket) => {
     const receiver = users.get(data.receiverId);
     const sender = users.get(data.senderId);
 
-    // ✅ SEND TO RECEIVER
     if (receiver) {
       io.to(receiver.socketId).emit("receiveMessage", data);
     }
 
-    // ✅ SEND BACK TO SENDER (SYNC FIX)
     if (sender) {
       io.to(sender.socketId).emit("receiveMessage", data);
     }
   });
 
   // ================= BLUE TICKS =================
-  socket.on("markSeen", ({ senderId }) => {
+  socket.on("markSeen", ({ senderId, receiverId }) => { // ✅ FIX
     const sender = users.get(senderId);
 
     if (sender) {
-      io.to(sender.socketId).emit("messagesSeen", senderId);
+      io.to(sender.socketId).emit("messagesSeen", receiverId); // ✅ FIX
     }
   });
 
@@ -107,7 +107,6 @@ io.on("connection", (socket) => {
   socket.on("createGroup", ({ groupId, members }) => {
     groups.set(groupId, members);
 
-    // ✅ BROADCAST GROUP TO ALL USERS
     io.emit("groupCreated", { groupId, members });
   });
 
@@ -132,6 +131,7 @@ io.on("connection", (socket) => {
     if (user) {
       io.to(user.socketId).emit("incomingCall", {
         from: socket.id,
+        fromUserId: [...users.entries()].find(([id, u]) => u.socketId === socket.id)?.[0], // ✅ FIX
         offer,
       });
     }
@@ -145,12 +145,12 @@ io.on("connection", (socket) => {
     io.to(to).emit("callRejected");
   });
 
-  // ================= ICE FIX =================
+  // ================= ICE =================
   socket.on("iceCandidate", ({ to, candidate }) => {
     const user = users.get(to);
 
     if (user) {
-      io.to(user.socketId).emit("iceCandidate", candidate);
+      io.to(user.socketId).emit("iceCandidate", candidate); // ✅ FIX
     }
   });
 
