@@ -40,6 +40,8 @@ app.post("/api/status", (req, res) => {
     image,
     time: Date.now(),
   });
+  io.emit("statusUpdated");
+  
 
   res.json({ success: true });
 });
@@ -76,8 +78,8 @@ io.on("connection", (socket) => {
       username,
       socketId: socket.id,
     });
-
-    io.emit("getUsers", Array.from(users.values()));
+const allUsers = Array.from(users.values());
+    io.emit("getUsers", allUsers);
   });
 
   // ================= MESSAGE =================
@@ -109,6 +111,7 @@ io.on("connection", (socket) => {
 
     io.emit("groupCreated", { groupId, members });
   });
+  io.emit("getUsers", Array.from(users.values())); // ✅ FIX
 
   socket.on("sendGroupMessage", ({ groupId, message }) => {
     const members = groups.get(groupId) || [];
