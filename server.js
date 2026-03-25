@@ -72,6 +72,7 @@ io.on("connection", (socket) => {
   console.log("⚡ Connected:", socket.id);
 
  socket.on("addUser", ({ userId, username }) => {
+  console.log("✅ ADD USER:", userId, username, socket.id);
 
   // ✅ FIX: remove old socket if exists
   for (let [key, value] of users.entries()) {
