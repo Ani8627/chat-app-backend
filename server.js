@@ -12,21 +12,48 @@ const messageRoutes = require("./routes/messageRoutes");
 const uploadRoute = require("./routes/upload");
 const aiRoute = require("./routes/ai");
 
+const Message = require("./models/Message"); // ✅ NEW
+
 const app = express();
 
 app.use(helmet());
 app.use(express.json());
-//cors with credentials for cookies
+
 app.use(cors({
   origin: true,
   credentials: true
 }));
 
-// ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoute);
 app.use("/api/ai", aiRoute);
+// ================= STATUS ROUTES =================
+
+// ✅ ADDED
+let statuses = [];
+
+// ✅ ADD STATUS
+app.post("/api/status", (req, res) => {
+  const { userId, image } = req.body;
+
+  statuses.push({
+    userId,
+    image,
+    time: Date.now(),
+  });
+
+  res.json({ success: true });
+});
+
+// ✅ GET STATUS (last 24 hours)
+app.get("/api/status", (req, res) => {
+  const last24h = Date.now() - 24 * 60 * 60 * 1000;
+
+  const filtered = statuses.filter((s) => s.time > last24h);
+
+  res.json(filtered);
+});
 
 app.get("/", (req, res) => {
   res.send("Backend running 🚀");
@@ -34,7 +61,6 @@ app.get("/", (req, res) => {
 
 app.use("/uploads", express.static("uploads"));
 
-// DB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
@@ -42,60 +68,83 @@ mongoose
 
 const server = http.createServer(app);
 
-// ✅ SOCKET FINAL
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
-let users = [];
-let groups = {};
+// ================= SOCKET FINAL FIX =================
+
+let users = new Map(); // ✅ FIX (better than array)
+let groups = new Map(); // ✅ FIX
 
 io.on("connection", (socket) => {
   console.log("⚡ Connected:", socket.id);
 
-  // ADD USER
+  // ================= ADD USER =================
   socket.on("addUser", ({ userId, username }) => {
-    const existing = users.find((u) => u.userId === userId);
+    users.set(userId, {
+      userId,
+      username,
+      socketId: socket.id,
+    });
 
-    if (existing) {
-      existing.socketId = socket.id;
-    } else {
-      users.push({ userId, username, socketId: socket.id });
-    }
-
-    io.emit("getUsers", users);
+    // ✅ SEND FULL CONSISTENT LIST
+    io.emit(
+      "getUsers",
+      Array.from(users.values())
+    );
   });
 
-  // MESSAGE
+  // ================= SEND MESSAGE =================
   socket.on("sendMessage", (data) => {
-    const receiver = users.find((u) => u.userId === data.receiverId);
+    const receiver = users.get(data.receiverId);
 
     if (receiver) {
       io.to(receiver.socketId).emit("receiveMessage", data);
     }
-  });
 
-  // BLUE TICKS
-  socket.on("markSeen", ({ senderId, receiverId }) => {
-    const sender = users.find((u) => u.userId === senderId);
+    // ✅ ALSO SEND BACK TO SENDER (SYNC FIX)
+    const sender = users.get(data.senderId);
     if (sender) {
-      io.to(sender.socketId).emit("messageSeen", receiverId);
+      io.to(sender.socketId).emit("receiveMessage", data);
     }
   });
+  // ✅ SEEN FIX
+socket.on("markSeen", ({ senderId, receiverId }) => {
+  const sender = users.get(senderId);
+  if (sender) {
+    io.to(sender.socketId).emit("messagesSeen", receiverId);
+  }
+});
 
-  // TYPING
-  socket.on("typing", ({ senderId, receiverId }) => {
-    const receiver = users.find((u) => u.userId === receiverId);
-    if (receiver) {
-      io.to(receiver.socketId).emit("typing", senderId);
+  // ================= GROUP =================
+  // ✅ FIX — GLOBAL GROUP STORAGE
+let groups = new Map();
+
+socket.on("createGroup", ({ groupId, members }) => {
+  groups.set(groupId, members);
+
+  // 🔥 BROADCAST GROUP TO ALL USERS
+  io.emit("groupCreated", { groupId, members });
+});
+
+socket.on("sendGroupMessage", ({ groupId, message }) => {
+  const members = groups.get(groupId) || [];
+
+  members.forEach((id) => {
+    const user = users.get(id);
+    if (user) {
+      io.to(user.socketId).emit("receiveGroupMessage", {
+        groupId,
+        message,
+      });
     }
   });
+});
 
-  // VIDEO CALL
+  // ================= CALL =================
   socket.on("callUser", ({ to, offer }) => {
-    const user = users.find((u) => u.userId === to);
+    const user = users.get(to);
     if (user) {
       io.to(user.socketId).emit("incomingCall", {
         from: socket.id,
@@ -108,35 +157,24 @@ io.on("connection", (socket) => {
     io.to(to).emit("callAnswered", { answer });
   });
 
-  // GROUP CHAT
-  socket.on("createGroup", ({ groupId, members }) => {
-    groups[groupId] = members;
+  socket.on("rejectCall", ({ to }) => {
+    io.to(to).emit("callRejected");
   });
 
-  socket.on("sendGroupMessage", ({ groupId, message }) => {
-    const members = groups[groupId] || [];
-
-    members.forEach((id) => {
-      const user = users.find((u) => u.userId === id);
-      if (user) {
-        io.to(user.socketId).emit("receiveGroupMessage", {
-          groupId,
-          message,
-        });
-      }
-    });
+  // ================= ICE =================
+  socket.on("iceCandidate", ({ to, candidate }) => {
+    io.to(to).emit("iceCandidate", candidate);
   });
 
-  // DISCONNECT
+  // ================= DISCONNECT =================
   socket.on("disconnect", () => {
-    const disconnected = users.find((u) => u.socketId === socket.id);
-    users = users.filter((u) => u.socketId !== socket.id);
-
-    if (disconnected) {
-      io.emit("userOffline", disconnected.userId);
+    for (let [key, value] of users.entries()) {
+      if (value.socketId === socket.id) {
+        users.delete(key);
+      }
     }
 
-    io.emit("getUsers", users);
+    io.emit("getUsers", Array.from(users.values()));
   });
 });
 
